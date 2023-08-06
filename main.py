@@ -1,7 +1,11 @@
+from peewee import SqliteDatabase, Model, CharField, DateTimeField, ForeignKeyField
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 import argparse
 import requests
 import re
+import time
+import sys
 
 # To find new theatres, go to:
 #
@@ -42,8 +46,16 @@ offerings = [
 #
 THEATRE_SHOWTIMES_URL='https://www.amctheatres.com/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
 
+db = SqliteDatabase('amc_showtimes.db')
 
-class Film(object):
+
+class ShowtimeResult(object):
+
+    def __init__(self, time, link):
+        self.time = time
+        self.link = link
+
+class FilmResult(object):
 
     def __init__(self, key, title, showtimes):
         self.key = key
@@ -51,8 +63,24 @@ class Film(object):
         self.showtimes = showtimes
 
     def __repr__(self):
-        formatted_showtimes = ', '.join(self.showtimes)
-        return f"Film({self.key} [{self.title}], showtimes=[{formatted_showtimes}])"
+        formatted_showtimes = ', '.join([x.time for x in self.showtimes])
+        return f"FilmResult({self.key} [{self.title}], showtimes=[{formatted_showtimes}])"
+
+
+class BaseModel(Model):
+    class Meta:
+        database = db
+
+
+class Film(BaseModel):
+    key = CharField(unique=True, primary_key=True)
+    title = CharField()
+
+
+class Showtime(BaseModel):
+    film = ForeignKeyField(Film, backref='showtimes')
+    date = DateTimeField()
+    link = CharField()
 
 
 # Fetch the Films with showtimes that have available tickets given a date and theatre
@@ -78,20 +106,157 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
         for showtime_soup in showtimes_soup:
             if 'Showtime-disabled' in showtime_soup['class']:
                 continue
-            showtimes.append(showtime_soup.find('a').text)
+            a_soup = showtime_soup.find('a')
+            # if there are no offerings for the given date, AMC might redirect and provide all offerings. Double check that that this showtime is for the requested offering by checking the link which should include the offering key.
+            link = a_soup['href']
+            if offering not in link:
+                continue
+            showtimes.append(ShowtimeResult(a_soup.text, link))
 
-        films.append(Film(film_key, film_title, showtimes))
+        films.append(FilmResult(film_key, film_title, showtimes))
 
     return films
+
+def fetch_new_showtimes(lookforward_days):
+    print(f"Starting requests for {lookforward_days} days, {len(theatres)} theatres, and {len(offerings)} offerings ({args.lookforward_days * len(theatres) * len(offerings)} requests)")
+    results = {
+        'films': [],
+        'showtimes': []
+    }
+    start_date = datetime.now()
+    for i in range(0, lookforward_days):
+        date = start_date + timedelta(days=i)
+        datestr = date.strftime('%Y-%m-%d')
+
+        for theatre in theatres:
+            for offering in offerings:
+                film_results = fetch_showtimes(theatre[0], theatre[1], datestr, offering)
+
+                for film_result in (x for x in film_results if len(x.showtimes) > 0):
+                    film = Film.get_or_none(key = film_result.key)
+                    if film is None:
+                        film = Film.create(key = film_result.key,
+                                           title = film_result.title)
+                        results['films'].append(film)
+
+                    for showtime_result in film_result.showtimes:
+                        showtime_date = datetime.strptime(datestr + ' ' + showtime_result.time, '%Y-%m-%d %I:%M%p')
+
+                        s = Showtime.get_or_none(film = film, date = showtime_date)
+                        if s is None:
+                            s = Showtime.create(film = film, date = showtime_date, link = showtime_result.link)
+                            results['showtimes'].append(s)
+
+                print('.', end='')
+                sys.stdout.flush()
+
+                # Space out requests a bit to avoid potentially getting throttled
+                time.sleep(0.75)
+
+    print()
+    return results
+
+
+def notify(args):
+    with db:
+        db.create_tables([Film, Showtime])
+        new = fetch_new_showtimes(args.lookforward_days)
+        print(f"Found {len(new['showtimes'])} new showtimes and {len(new['films'])} films")
+
+        if len(new['showtimes']):
+            print("New showtimes:")
+            for showtime in new['showtimes']:
+                print(f'{showtime.date} - {showtime.film} ({showtime.link})')
+
+        purged = purge_old_records()
+        print(f"Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes")
+
+
+def purge_old_records():
+    d = datetime.now()
+
+    results = {
+        'showtimes': 0,
+        'films': 0
+    }
+
+    q = Showtime.delete().where(Showtime.date < d)
+    results['showtimes'] = q.execute()
+
+    for film in Film.select():
+        if film.showtimes.count() == 0:
+            results['films'] += film.delete_instance()
+
+    return results
+
+
+def debug(args):
+    with db:
+
+        if args.drop_tables:
+            db.drop_tables([Film, Showtime])
+
+        if args.delete_film is not None:
+            q = Film.delete().where(Film.key == args.delete_film)
+            q.execute()
+
+            q = Showtime.delete().where(Showtime.film == args.delete_film)
+            q.execute()
+
+        if args.purge_old_records:
+            results = purge_old_records()
+            print(f"Removed {results['showtimes']} showtimes and {results['films']} films")
+
+        if args.print_films:
+            for film in Film.select():
+                print(f'{film.title} [{film.key}] {film.showtimes.count()} showtimes')
+
+        if args.print_showtimes:
+            for showtime in Showtime.select():
+                print(f'{showtime.date} - {showtime.film}')
+
+        if args.print_showtimes_before:
+            d = datetime.strptime(args.print_showtimes_before, '%Y-%m-%d %I:%M%p')
+            for showtime in Showtime.select().where(Showtime.date < d):
+                print(f'{showtime.date} - {showtime.film}')
+
+        if args.delete_showtimes_before:
+            d = datetime.strptime(args.delete_showtimes_before, '%Y-%m-%d %I:%M%p')
+            q = Showtime.delete().where(Showtime.date < d)
+            count_removed = q.execute()
+            print(f'{count_removed} records removed')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
-    parser.add_argument('lookforward_days', type=int,
-                        help='How many days in the future to process showtimes')
+    subparsers = parser.add_subparsers()
+
+    notify_parser = subparsers.add_parser('notify', help='Check for and notify if there are new showtimes')
+    notify_parser.set_defaults(func=notify)
+    notify_parser.add_argument('lookforward_days', type=int,
+                                help='How many days in the future to process showtimes')
+
+
+    debug_parser = subparsers.add_parser('debug', help='Debug database')
+    debug_parser.set_defaults(func=debug)
+    debug_parser.add_argument('--drop-tables', action='store_true', default=False,
+                              help='Drops the tables.')
+    debug_parser.add_argument('--delete-film', default=None,
+                              help='Delete the film and showtimes with the given film key')
+    debug_parser.add_argument('--purge-old-records', action='store_true', default=False,
+                              help='Removes showtimes older than the current datetime and any films with no showtimes.')
+    debug_parser.add_argument('--print-films', action='store_true', default=False,
+                              help='Prints all films in the database.')
+    debug_parser.add_argument('--print-showtimes', action='store_true', default=False,
+                              help='Prints all showtimes in the database.')
+    debug_parser.add_argument('--print-showtimes-before', default=None,
+                              help='Prints all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
+    debug_parser.add_argument('--delete-showtimes-before', default=None,
+                              help='Deletes all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
+
     args = parser.parse_args()
 
+    args.func(args)
 
-    print(fetch_showtimes(theatres[0][0], theatres[0][1], '2023-08-05', offerings[0]))
 
 
