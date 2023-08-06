@@ -26,11 +26,10 @@ import sys
 #
 theatres = [
     # ({location}, {theatre_key})
-    ('san-francisco', 'amc-metreon-16')
-#    ('san-francisco', 'amc-dine-in-sunnyvale-12'),
-#    ('san-francisco', 'amc-dine-in-sunnyvale-12'),
-#    ('san-jose', 'amc-saratoga-14'),
-#    ('san-jose', 'amc-eastridge-15')
+    ('san-francisco', 'amc-metreon-16'),
+    ('san-francisco', 'amc-dine-in-sunnyvale-12'),
+    ('san-jose', 'amc-saratoga-14'),
+    ('san-jose', 'amc-eastridge-15')
 ]
 
 # Theatre formats to lookup (AMC seems to name these offerings). These values can be found by going to amctheatres.com and opening the showtimes for a theatre.
@@ -44,15 +43,17 @@ offerings = [
 ]
 
 #
-THEATRE_SHOWTIMES_URL='https://www.amctheatres.com/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
+BASE_URL='https://www.amctheatres.com'
+THEATRE_SHOWTIMES_URL=BASE_URL + '/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
 
 db = SqliteDatabase('amc_showtimes.db')
 
 
 class ShowtimeResult(object):
 
-    def __init__(self, time, link):
+    def __init__(self, time, theatre, link):
         self.time = time
+        self.theatre = theatre
         self.link = link
 
 class FilmResult(object):
@@ -79,6 +80,7 @@ class Film(BaseModel):
 
 class Showtime(BaseModel):
     film = ForeignKeyField(Film, backref='showtimes')
+    theatre = CharField()
     date = DateTimeField()
     link = CharField()
 
@@ -108,10 +110,10 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
                 continue
             a_soup = showtime_soup.find('a')
             # if there are no offerings for the given date, AMC might redirect and provide all offerings. Double check that that this showtime is for the requested offering by checking the link which should include the offering key.
-            link = a_soup['href']
+            link = BASE_URL + a_soup['href']
             if offering not in link:
                 continue
-            showtimes.append(ShowtimeResult(a_soup.text, link))
+            showtimes.append(ShowtimeResult(a_soup.text, theatre_key, link))
 
         films.append(FilmResult(film_key, film_title, showtimes))
 
@@ -142,10 +144,18 @@ def fetch_new_showtimes(lookforward_days):
                     for showtime_result in film_result.showtimes:
                         showtime_date = datetime.strptime(datestr + ' ' + showtime_result.time, '%Y-%m-%d %I:%M%p')
 
-                        s = Showtime.get_or_none(film = film, date = showtime_date)
+                        s = Showtime.get_or_none(film = film,
+                                                 theatre = showtime_result.theatre,
+                                                 date = showtime_date)
                         if s is None:
-                            s = Showtime.create(film = film, date = showtime_date, link = showtime_result.link)
+                            s = Showtime.create(film = film,
+                                                theatre = showtime_result.theatre,
+                                                date = showtime_date,
+                                                link = showtime_result.link)
                             results['showtimes'].append(s)
+                        else:
+                            s.link = showtime_result.link
+                            s.save()
 
                 print('.', end='')
                 sys.stdout.flush()
@@ -174,14 +184,15 @@ def notify(args):
 
 
 def purge_old_records():
-    d = datetime.now()
+    d = datetime.combine(datetime.now().date(), datetime.min.time())
 
     results = {
         'showtimes': 0,
         'films': 0
     }
 
-    q = Showtime.delete().where(Showtime.date < d)
+
+    q = Showtime.delete().where(Showtime.date.truncate('day') < d)
     results['showtimes'] = q.execute()
 
     for film in Film.select():
@@ -208,13 +219,18 @@ def debug(args):
             results = purge_old_records()
             print(f"Removed {results['showtimes']} showtimes and {results['films']} films")
 
+        if args.clear_links:
+            for showtime in Showtime.select():
+                showtime.link = ""
+                showtime.save()
+
         if args.print_films:
             for film in Film.select():
                 print(f'{film.title} [{film.key}] {film.showtimes.count()} showtimes')
 
         if args.print_showtimes:
             for showtime in Showtime.select():
-                print(f'{showtime.date} - {showtime.film}')
+                print(f'{showtime.date} - {showtime.theatre} - {showtime.film} ({showtime.link})')
 
         if args.print_showtimes_before:
             d = datetime.strptime(args.print_showtimes_before, '%Y-%m-%d %I:%M%p')
@@ -246,6 +262,8 @@ if __name__ == "__main__":
                               help='Delete the film and showtimes with the given film key')
     debug_parser.add_argument('--purge-old-records', action='store_true', default=False,
                               help='Removes showtimes older than the current datetime and any films with no showtimes.')
+    debug_parser.add_argument('--clear-links', action='store_true', default=False,
+                              help='Replaces all the Showtime links with empty string')
     debug_parser.add_argument('--print-films', action='store_true', default=False,
                               help='Prints all films in the database.')
     debug_parser.add_argument('--print-showtimes', action='store_true', default=False,
