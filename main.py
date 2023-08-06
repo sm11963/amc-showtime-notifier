@@ -161,15 +161,16 @@ def notify(args):
     with db:
         db.create_tables([Film, Showtime])
         new = fetch_new_showtimes(args.lookforward_days)
-        print(f"Found {len(new['showtimes'])} new showtimes and {len(new['films'])} films")
 
         if len(new['showtimes']):
             print("New showtimes:")
             for showtime in new['showtimes']:
                 print(f'{showtime.date} - {showtime.film} ({showtime.link})')
 
+        print("\nSummary:\n")
+        print(f"  Found {len(new['showtimes'])} new showtimes and {len(new['films'])} films")
         purged = purge_old_records()
-        print(f"Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes")
+        print(f"  Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes\n")
 
 
 def purge_old_records():
