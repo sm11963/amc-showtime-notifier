@@ -1,11 +1,14 @@
 from peewee import SqliteDatabase, Model, CharField, DateTimeField, ForeignKeyField
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 import argparse
 import requests
 import re
 import time
 import sys
+import smtplib
+
 
 # To find new theatres, go to:
 #
@@ -167,22 +170,18 @@ def fetch_new_showtimes(lookforward_days):
     return results
 
 
-def notify(args):
-    with db:
-        db.create_tables([Film, Showtime])
-        new = fetch_new_showtimes(args.lookforward_days)
-
-        if len(new['showtimes']):
-            print("New showtimes:")
-            for showtime in new['showtimes']:
-                print(f'{showtime.date} - {showtime.film} ({showtime.link})')
-
-        print("\nSummary:\n")
-        print(f"  Found {len(new['showtimes'])} new showtimes and {len(new['films'])} films")
-        purged = purge_old_records()
-        print(f"  Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes\n")
+# Sends an email using Gmail SMTP (make sure to use an App Password)
+def send_email(subject, body, sender, recipients, password, html=False):
+    msg = MIMEText(body, 'html' if html else 'text')
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = ', '.join(recipients)
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
+       smtp_server.login(sender, password)
+       smtp_server.sendmail(sender, recipients, msg.as_string())
 
 
+# Removes Showtimes with date older than the current date and Films with no showtimes.
 def purge_old_records():
     d = datetime.combine(datetime.now().date(), datetime.min.time())
 
@@ -200,6 +199,100 @@ def purge_old_records():
             results['films'] += film.delete_instance()
 
     return results
+
+
+def gen_formated_showtimes(showtimes, html=False):
+    by_films = {}
+    for fk in set([x.film.key for x in showtimes]):
+        by_films[fk] = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres]
+
+    body = ""
+    for (k, ts) in by_films.items():
+
+        if html:
+            body += f"""
+            <p style="margin:0;font-size:14px"> </p>
+            <p style="margin:0;font-size:14px"><strong>{k}</strong></p>
+            <p style="margin:0;font-size:14px"> </p>
+            """
+        else:
+            body += k + "\n"
+        for t in ts:
+            if html:
+                body += f"""
+                <p dir="ltr" style="margin:0;font-size:14px;margin-left:40px">{t[0]}</p>
+                <ul style="line-height:1.2">
+                    <li style="list-style-type:none">
+                        <ul style="line-height:1.2;font-size:14px">
+                """
+            else:
+                body += f"  {t[0]}\n"
+            for s in t[1]:
+                ds = s.date.strftime("%Y-%m-%d %I:%M %p")
+                if html:
+                    body += f"""
+                                <li dir="ltr"><a href="{s.link}">{ds}</a></li>
+                    """
+                else:
+                    body += f"    [{ds}] - {s.link}\n"
+            if html:
+                body += """
+                        </ul>
+                    </li>
+                </ul>
+                """
+            else:
+                body += "\n"
+
+    return body
+
+
+def gen_new_showtimes_email_body(showtimes):
+    body = """
+    <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+    <html><head><META http-equiv="Content-Type" content="text/html; charset=utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0}#m_MessageViewBody a{color:inherit;text-decoration:none}p{line-height:inherit}.m_desktop_hide,.m_desktop_hide table{display:none;max-height:0;overflow:hidden}.m_image_block img+div{display:none}@media (max-width:520px){.m_mobile_hide{display:none}.m_row-content{width:100%!important}.m_stack .m_column{width:100%;display:block}.m_mobile_hide{min-height:0;max-height:0;max-width:0;overflow:hidden;font-size:0}.m_desktop_hide,.m_desktop_hide table{display:table!important;max-height:none!important}}</style></head><body><u></u><div style="background-color:#fff;margin:0;padding:0"><table class="m_nl-container" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fff"><tbody><tr><td><table class="m_row m_row-1" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#cd2323">
+    <tbody><tr><td><table class="m_row-content m_stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="color:#000;width:500px;margin:0 auto" width="500"><tbody><tr><td class="m_column m_column-1" width="100%" style="font-weight:400;text-align:left;padding-bottom:5px;padding-top:5px;vertical-align:top;border-top:0;border-right:0;border-bottom:0;border-left:0"><table class="m_text_block m_block-1" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation" style="word-break:break-word"><tr><td class="m_pad"><div style="font-family:Verdana,sans-serif"><div style="font-size:14px;font-family:&#39;Lucida Sans Unicode&#39;,&#39;Lucida Grande&#39;,&#39;Lucida Sans&#39;,Geneva,Verdana,sans-serif;color:#555;line-height:1.8"><p style="margin:0;font-size:14px;text-align:center">
+    <span style="font-size:26px;color:#ffffff"><strong>AMC Showtime</strong><strong> </strong><strong>Notifier</strong></span></p></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table><table class="m_row m_row-2" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td><table class="m_row-content m_stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:0;color:#000;width:500px;margin:0 auto" width="500"><tbody><tr><td class="m_column m_column-1" width="100%" style="font-weight:400;text-align:left;padding-bottom:5px;padding-top:5px;vertical-align:top;border-top:0;border-right:0;border-bottom:0;border-left:0"><table class="m_text_block m_block-1" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation" style="word-break:break-word"><tr><td class="m_pad"><div style="font-family:sans-serif"><div style="font-size:14px;font-family:Arial,&#39;Helvetica Neue&#39;,Helvetica,sans-serif;color:#555;line-height:1.2"><p style="margin:0;font-size:14px">Found new AMC showtimes!</p>
+    """
+    body += gen_formated_showtimes(showtimes, html=True)
+    body += """
+    </div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table><div style="background-color:transparent">
+        <div style="Margin:0 auto;min-width:320px;max-width:500px;word-wrap:break-word;word-break:break-word;background-color:transparent" class="m_block-grid">
+            <div style="border-collapse:collapse;display:table;width:100%;background-color:transparent">
+            </div>
+        </div>
+    </div></div></body></html>
+    """
+
+    return body
+
+
+def notify(args):
+    with db:
+        db.create_tables([Film, Showtime])
+        new = fetch_new_showtimes(args.lookforward_days)
+
+        if len(new['showtimes']):
+            print("New showtimes:")
+            print(gen_formated_showtimes(new['showtimes']))
+            ds = datetime.now().strftime("%Y-%m-%d")
+            send_email(
+                f"New AMC showtimes found as of {ds}!",
+                gen_new_showtimes_email_body(new['showtimes']),
+                args.email_sender,
+                args.email_recipients,
+                args.email_password,
+                html=True
+            )
+
+        print("\nSummary:\n")
+        print(f"  Found {len(new['showtimes'])} new showtimes and {len(new['films'])} new films")
+        purged = purge_old_records()
+        print(f"  Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes\n")
+
+
+def email(args):
+    send_email(args.subject, args.body, args.send_from, [args.to], args.smtp_password)
 
 
 def debug(args):
@@ -232,6 +325,9 @@ def debug(args):
             for showtime in Showtime.select():
                 print(f'{showtime.date} - {showtime.theatre} - {showtime.film} ({showtime.link})')
 
+        if args.pprint_showtimes:
+            print(gen_formated_showtimes(list(Showtime.select())))
+
         if args.print_showtimes_before:
             d = datetime.strptime(args.print_showtimes_before, '%Y-%m-%d %I:%M%p')
             for showtime in Showtime.select().where(Showtime.date < d):
@@ -252,6 +348,12 @@ if __name__ == "__main__":
     notify_parser.set_defaults(func=notify)
     notify_parser.add_argument('lookforward_days', type=int,
                                 help='How many days in the future to process showtimes')
+    notify_parser.add_argument('email_sender',
+                               help='Gmail email account to send notifications from')
+    notify_parser.add_argument('email_password',
+                               help='App password for the Gmail email account to send notifications from')
+    notify_parser.add_argument('email_recipients', action='append',
+                               help='Recipients for the new showtimes notification email.')
 
 
     debug_parser = subparsers.add_parser('debug', help='Debug database')
@@ -268,10 +370,25 @@ if __name__ == "__main__":
                               help='Prints all films in the database.')
     debug_parser.add_argument('--print-showtimes', action='store_true', default=False,
                               help='Prints all showtimes in the database.')
+    debug_parser.add_argument('--pprint-showtimes', action='store_true', default=False,
+                              help='Pretty prints all showtimes in the database.')
     debug_parser.add_argument('--print-showtimes-before', default=None,
                               help='Prints all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
     debug_parser.add_argument('--delete-showtimes-before', default=None,
                               help='Deletes all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
+
+    email_parser = subparsers.add_parser('email', help='Send email with the given parameters through gmail SMTP (used for testing).')
+    email_parser.set_defaults(func=email)
+    email_parser.add_argument('send_from',
+                              help='Email account to send with')
+    email_parser.add_argument('smtp_password',
+                              help='SMTP password')
+    email_parser.add_argument('to',
+                              help='Email recipient.')
+    email_parser.add_argument('subject',
+                              help='Subject of message')
+    email_parser.add_argument('body',
+                              help='Body of message')
 
     args = parser.parse_args()
 
