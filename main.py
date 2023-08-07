@@ -49,7 +49,7 @@ offerings = [
 BASE_URL='https://www.amctheatres.com'
 THEATRE_SHOWTIMES_URL=BASE_URL + '/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
 
-db = SqliteDatabase('amc_showtimes.db')
+db = SqliteDatabase(None)
 
 
 class ShowtimeResult(object):
@@ -172,10 +172,12 @@ def fetch_new_showtimes(lookforward_days):
 
 # Sends an email using Gmail SMTP (make sure to use an App Password)
 def send_email(subject, body, sender, recipients, password, html=False):
-    msg = MIMEText(body, 'html' if html else 'text')
+    msg = MIMEText(body, 'html' if html else 'plain')
     msg['Subject'] = subject
     msg['From'] = sender
     msg['To'] = ', '.join(recipients)
+    # Adding this header prevents emails being grouped into threads
+    msg.add_header('X-Entity-Ref-ID', 'null')
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
        smtp_server.login(sender, password)
        smtp_server.sendmail(sender, recipients, msg.as_string())
@@ -204,7 +206,8 @@ def purge_old_records():
 def gen_formated_showtimes(showtimes, html=False):
     by_films = {}
     for fk in set([x.film.key for x in showtimes]):
-        by_films[fk] = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres]
+        ts = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres ]
+        by_films[fk] = [t for t in ts if len(t[1]) > 0]
 
     body = ""
     for (k, ts) in by_films.items():
@@ -292,7 +295,7 @@ def notify(args):
 
 
 def email(args):
-    send_email(args.subject, args.body, args.send_from, [args.to], args.smtp_password)
+    send_email(args.subject, args.body, args.send_from, args.recipients, args.smtp_password)
 
 
 def debug(args):
@@ -339,10 +342,19 @@ def debug(args):
             count_removed = q.execute()
             print(f'{count_removed} records removed')
 
+        if args.purge_theatre:
+            q = Showtime.delete().where(Showtime.theatre == args.purge_theatre)
+            count_removed = q.execute()
+            print(f'{count_removed} records removed')
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
-    subparsers = parser.add_subparsers()
+
+    parser.add_argument('--db-file', default='amc_showtimes.db',
+                        help='Customize the location of the SQLLite database file to use. By default its \'amc_showtimes.db\'')
+
+    subparsers = parser.add_subparsers(required=True)
 
     notify_parser = subparsers.add_parser('notify', help='Check for and notify if there are new showtimes')
     notify_parser.set_defaults(func=notify)
@@ -352,7 +364,7 @@ if __name__ == "__main__":
                                help='Gmail email account to send notifications from')
     notify_parser.add_argument('email_password',
                                help='App password for the Gmail email account to send notifications from')
-    notify_parser.add_argument('email_recipients', action='append',
+    notify_parser.add_argument('email_recipients', nargs='+',
                                help='Recipients for the new showtimes notification email.')
 
 
@@ -362,6 +374,8 @@ if __name__ == "__main__":
                               help='Drops the tables.')
     debug_parser.add_argument('--delete-film', default=None,
                               help='Delete the film and showtimes with the given film key')
+    debug_parser.add_argument('--purge-theatre', default=None,
+                              help='Delete all showtimes for the given theatre key.')
     debug_parser.add_argument('--purge-old-records', action='store_true', default=False,
                               help='Removes showtimes older than the current datetime and any films with no showtimes.')
     debug_parser.add_argument('--clear-links', action='store_true', default=False,
@@ -383,14 +397,16 @@ if __name__ == "__main__":
                               help='Email account to send with')
     email_parser.add_argument('smtp_password',
                               help='SMTP password')
-    email_parser.add_argument('to',
-                              help='Email recipient.')
     email_parser.add_argument('subject',
                               help='Subject of message')
     email_parser.add_argument('body',
                               help='Body of message')
+    email_parser.add_argument('recipients', nargs='+',
+                              help='Recipients for the new showtimes notification email.')
 
     args = parser.parse_args()
+
+    db.init(args.db_file)
 
     args.func(args)
 

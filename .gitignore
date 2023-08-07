@@ -161,6 +161,7 @@ cython_debug/
 
 # Vim
 *.swp
+*.swo
 
 # SQLLite
 *.db
