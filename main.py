@@ -49,7 +49,7 @@ offerings = [
 BASE_URL='https://www.amctheatres.com'
 THEATRE_SHOWTIMES_URL=BASE_URL + '/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
 
-db = SqliteDatabase('amc_showtimes.db')
+db = SqliteDatabase(None)
 
 
 class ShowtimeResult(object):
@@ -350,6 +350,10 @@ def debug(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
+
+    parser.add_argument('--db-file', default='amc_showtimes.db',
+                        help='Customize the location of the SQLLite database file to use. By default its \'amc_showtimes.db\'')
+
     subparsers = parser.add_subparsers(required=True)
 
     notify_parser = subparsers.add_parser('notify', help='Check for and notify if there are new showtimes')
@@ -401,6 +405,8 @@ if __name__ == "__main__":
                               help='Recipients for the new showtimes notification email.')
 
     args = parser.parse_args()
+
+    db.init(args.db_file)
 
     args.func(args)
 
