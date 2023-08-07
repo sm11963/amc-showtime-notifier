@@ -342,7 +342,7 @@ def debug(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(required=True)
 
     notify_parser = subparsers.add_parser('notify', help='Check for and notify if there are new showtimes')
     notify_parser.set_defaults(func=notify)
