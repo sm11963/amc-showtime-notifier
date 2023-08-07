@@ -14,6 +14,8 @@ ENV PUID=
 # GID to use to run the application processes. If this is not set, there will be issues with file access permissions.
 # See this guide for example: https://drfrankenstein.co.uk/step-2-setting-up-a-restricted-docker-user-and-obtaining-ids/
 ENV PGID=
+# default schedule is everyday at 8am, 2pm, and 8pm
+ENV CRON_SCHEDULE="0 8,14,20 * * *"
 ENV LOOKAHEAD_DAYS=
 ENV EMAIL_SENDER=
 ENV SMTP_PASSWORD=
