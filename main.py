@@ -172,10 +172,12 @@ def fetch_new_showtimes(lookforward_days):
 
 # Sends an email using Gmail SMTP (make sure to use an App Password)
 def send_email(subject, body, sender, recipients, password, html=False):
-    msg = MIMEText(body, 'html' if html else 'text')
+    msg = MIMEText(body, 'html' if html else 'plain')
     msg['Subject'] = subject
     msg['From'] = sender
     msg['To'] = ', '.join(recipients)
+    # Adding this header prevents emails being grouped into threads
+    msg.add_header('X-Entity-Ref-ID', 'null')
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
        smtp_server.login(sender, password)
        smtp_server.sendmail(sender, recipients, msg.as_string())
