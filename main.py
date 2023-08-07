@@ -8,6 +8,7 @@ import re
 import time
 import sys
 import smtplib
+import backoff
 
 
 # To find new theatres, go to:
@@ -46,6 +47,8 @@ offerings = [
 ]
 
 #
+FETCH_DELAY=5
+MAX_EXCEPTIONS=5
 BASE_URL='https://www.amctheatres.com'
 THEATRE_SHOWTIMES_URL=BASE_URL + '/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
 
@@ -89,6 +92,10 @@ class Showtime(BaseModel):
 
 
 # Fetch the Films with showtimes that have available tickets given a date and theatre
+@backoff.on_exception(backoff.expo,
+                      requests.exceptions.RequestException,
+                      max_tries=3,
+                      factor=5.0)
 def fetch_showtimes(location, theatre_key, datestr, offering):
     url = THEATRE_SHOWTIMES_URL.format(
         location=location,
@@ -126,16 +133,33 @@ def fetch_new_showtimes(lookforward_days):
     print(f"Starting requests for {lookforward_days} days, {len(theatres)} theatres, and {len(offerings)} offerings ({args.lookforward_days * len(theatres) * len(offerings)} requests)")
     results = {
         'films': [],
-        'showtimes': []
+        'showtimes': [],
+        'exceptions': []
     }
+    exceptions = []
     start_date = datetime.now()
     for i in range(0, lookforward_days):
+        if len(results['exceptions']) >= MAX_EXCEPTIONS:
+            break
+
         date = start_date + timedelta(days=i)
         datestr = date.strftime('%Y-%m-%d')
 
         for theatre in theatres:
+            if len(results['exceptions']) >= MAX_EXCEPTIONS:
+                break
+
             for offering in offerings:
-                film_results = fetch_showtimes(theatre[0], theatre[1], datestr, offering)
+                try:
+                    film_results = fetch_showtimes(theatre[0], theatre[1], datestr, offering)
+                except Exception as err:
+                    results['exceptions'].append((err, f"Enountered exception after retries requesting for {theatre[1]}, {datestr}, {offering}"))
+                    print('x', end='')
+                    sys.stdout.flush()
+                    if len(results['exceptions']) >= MAX_EXCEPTIONS:
+                        break
+                    else:
+                        continue
 
                 for film_result in (x for x in film_results if len(x.showtimes) > 0):
                     film = Film.get_or_none(key = film_result.key)
@@ -164,7 +188,7 @@ def fetch_new_showtimes(lookforward_days):
                 sys.stdout.flush()
 
                 # Space out requests a bit to avoid potentially getting throttled
-                time.sleep(0.75)
+                time.sleep(FETCH_DELAY)
 
     print()
     return results
@@ -292,6 +316,14 @@ def notify(args):
         print(f"  Found {len(new['showtimes'])} new showtimes and {len(new['films'])} new films")
         purged = purge_old_records()
         print(f"  Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes\n")
+
+        if len(new['exceptions']) > 0:
+            print(f"\nEncountered {len(new['exceptions'])} Exceptions:\n")
+            for e in new['exceptions']:
+                print(e[1])
+            print("\nRaising latest exception...")
+            raise new['exceptions'][-1][0]
+
 
 
 def email(args):
