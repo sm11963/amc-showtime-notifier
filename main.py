@@ -206,7 +206,8 @@ def purge_old_records():
 def gen_formated_showtimes(showtimes, html=False):
     by_films = {}
     for fk in set([x.film.key for x in showtimes]):
-        by_films[fk] = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres]
+        ts = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres ]
+        by_films[fk] = [t for t in ts if len(t[1]) > 0]
 
     body = ""
     for (k, ts) in by_films.items():
@@ -294,7 +295,7 @@ def notify(args):
 
 
 def email(args):
-    send_email(args.subject, args.body, args.send_from, [args.to], args.smtp_password)
+    send_email(args.subject, args.body, args.send_from, args.recipients, args.smtp_password)
 
 
 def debug(args):
@@ -341,6 +342,11 @@ def debug(args):
             count_removed = q.execute()
             print(f'{count_removed} records removed')
 
+        if args.purge_theatre:
+            q = Showtime.delete().where(Showtime.theatre == args.purge_theatre)
+            count_removed = q.execute()
+            print(f'{count_removed} records removed')
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
@@ -354,7 +360,7 @@ if __name__ == "__main__":
                                help='Gmail email account to send notifications from')
     notify_parser.add_argument('email_password',
                                help='App password for the Gmail email account to send notifications from')
-    notify_parser.add_argument('email_recipients', action='append',
+    notify_parser.add_argument('email_recipients', nargs='+',
                                help='Recipients for the new showtimes notification email.')
 
 
@@ -364,6 +370,8 @@ if __name__ == "__main__":
                               help='Drops the tables.')
     debug_parser.add_argument('--delete-film', default=None,
                               help='Delete the film and showtimes with the given film key')
+    debug_parser.add_argument('--purge-theatre', default=None,
+                              help='Delete all showtimes for the given theatre key.')
     debug_parser.add_argument('--purge-old-records', action='store_true', default=False,
                               help='Removes showtimes older than the current datetime and any films with no showtimes.')
     debug_parser.add_argument('--clear-links', action='store_true', default=False,
@@ -385,12 +393,12 @@ if __name__ == "__main__":
                               help='Email account to send with')
     email_parser.add_argument('smtp_password',
                               help='SMTP password')
-    email_parser.add_argument('to',
-                              help='Email recipient.')
     email_parser.add_argument('subject',
                               help='Subject of message')
     email_parser.add_argument('body',
                               help='Body of message')
+    email_parser.add_argument('recipients', nargs='+',
+                              help='Recipients for the new showtimes notification email.')
 
     args = parser.parse_args()
 
