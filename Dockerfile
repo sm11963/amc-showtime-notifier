@@ -29,6 +29,8 @@ COPY ./docker/configure-app.sh /var/local/bin/configure-app.sh
 RUN chmod +x /var/local/bin/configure-app.sh
 COPY ./docker/configure-cron.sh /var/local/bin/configure-cron.sh
 RUN chmod +x /var/local/bin/configure-cron.sh
+COPY ./docker/run-notifier.sh /var/local/bin/run-notifier.sh
+RUN chmod +x /var/local/bin/run-notifier.sh
 
 # Setup our application run file
 COPY ./docker/run.sh /var/local/bin/run.sh
