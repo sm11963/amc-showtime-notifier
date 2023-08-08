@@ -9,6 +9,7 @@ import time
 import sys
 import smtplib
 import backoff
+import traceback
 
 
 # To find new theatres, go to:
@@ -130,7 +131,7 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
     return films
 
 def fetch_new_showtimes(lookforward_days):
-    print(f"Starting requests for {lookforward_days} days, {len(theatres)} theatres, and {len(offerings)} offerings ({args.lookforward_days * len(theatres) * len(offerings)} requests)")
+    print(f"[{str(datetime.now())}] Starting requests for {lookforward_days} days, {len(theatres)} theatres, and {len(offerings)} offerings ({args.lookforward_days * len(theatres) * len(offerings)} requests)")
     results = {
         'films': [],
         'showtimes': [],
@@ -312,17 +313,49 @@ def notify(args):
                 html=True
             )
 
+        if new['exceptions'] == 0:
+            print('Success')
+        elif len(new['exceptions']) == MAX_EXCEPTIONS:
+            print(f'Failed after encountering {MAX_EXCEPTIONS} exceptions')
+        else:
+            print(f"Success with {len(new['exceptions'])} exceptions")
+
         print("\nSummary:\n")
         print(f"  Found {len(new['showtimes'])} new showtimes and {len(new['films'])} new films")
         purged = purge_old_records()
         print(f"  Purged {purged['showtimes']} old showtimes and {purged['films']} films with no showtimes\n")
 
         if len(new['exceptions']) > 0:
-            print(f"\nEncountered {len(new['exceptions'])} Exceptions:\n")
+            s = f"Encountered {len(new['exceptions'])} Exceptions:\n\n"
             for e in new['exceptions']:
-                print(e[1])
-            print("\nRaising latest exception...")
-            raise new['exceptions'][-1][0]
+                s += e[1] + "\n"
+            print(s)
+
+            e = new['exceptions'][-1][0]
+            e_str = ''.join(traceback.TracebackException.from_exception(e).format())
+
+            if len(args.log_email_recipients) > 0:
+                send_email(
+                    "AMC Showtime Notifier Exception",
+                    f"At {str(datetime.now())} AMC Showtime notifier encountered exceptions!\n\n{s}\n\nLatest exception:\n{e_str}",
+                    args.email_sender,
+                    args.log_email_recipients,
+                    args.email_password
+                )
+
+
+            print("Raising latest exception...")
+            raise e
+        else:
+            if len(args.log_email_recipients) > 0:
+                send_email(
+                    "AMC Showtime Notifier Success",
+                    f"Successfully completed at {str(datetime.now())}",
+                    args.email_sender,
+                    args.log_email_recipients,
+                    args.email_password
+                )
+
 
 
 
@@ -398,6 +431,8 @@ if __name__ == "__main__":
                                help='App password for the Gmail email account to send notifications from')
     notify_parser.add_argument('email_recipients', nargs='+',
                                help='Recipients for the new showtimes notification email.')
+    notify_parser.add_argument('--log-email-recipients', action='append',
+                               help='Email recipients for command logs (sent on any outcome of the command in addition to new notifications)')
 
 
     debug_parser = subparsers.add_parser('debug', help='Debug database')
