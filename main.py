@@ -199,7 +199,7 @@ def fetch_new_showtimes(lookforward_days):
 def send_email(subject, body, sender, recipients, password, html=False):
     msg = MIMEText(body, 'html' if html else 'plain')
     msg['Subject'] = subject
-    msg['From'] = sender
+    msg['From'] = f"AMC Showtime Notifier <{sender}>"
     msg['To'] = ', '.join(recipients)
     # Adding this header prevents emails being grouped into threads
     msg.add_header('X-Entity-Ref-ID', 'null')
