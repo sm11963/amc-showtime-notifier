@@ -20,6 +20,8 @@ ENV LOOKAHEAD_DAYS=
 ENV EMAIL_SENDER=
 ENV SMTP_PASSWORD=
 ENV EMAIL_RECIPIENTS=
+ENV THEATRES="san-francisco/amc-metreon-16 san-jose/amc-eastridge-15"
+ENV OFFERINGS="dolbycinemaatamcprime"
 
 ENV TZ="America/Los_Angeles"
 

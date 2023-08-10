@@ -8,4 +8,6 @@ python main.py \
   $LOOKAHEAD_DAYS \
   $EMAIL_SENDER \
   $SMTP_PASSWORD \
-  $EMAIL_RECIPIENTS
+  --email-to $EMAIL_RECIPIENTS \
+  --theatres $THEATRES \
+  --offerings $OFFERINGS

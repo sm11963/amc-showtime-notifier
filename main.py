@@ -11,43 +11,6 @@ import smtplib
 import backoff
 import traceback
 
-
-# To find new theatres, go to:
-#
-#   https://www.amctheatres.com/movie-theatres
-#
-# Search for the theatre you are interested in and click the link to "Showtimes" for that theatre.
-# The URL should be something like:
-#
-#   https://www.amctheatres.com/movie-theatres/{location}/{theatre-key}/showtimes/all/{date}/{theatre-key}/all
-#
-# For example:
-#
-#   https://www.amctheatres.com/movie-theatres/san-francisco/amc-metreon-16/showtimes/all/2023-08-05/amc-metreon-16/all
-#
-# Results in:
-#
-#  `('san-francisco', 'amc-metreon-16'),`
-#
-theatres = [
-    # ({location}, {theatre_key})
-    ('san-francisco', 'amc-metreon-16'),
-    ('san-francisco', 'amc-dine-in-sunnyvale-12'),
-    ('san-jose', 'amc-saratoga-14'),
-    ('san-jose', 'amc-eastridge-15')
-]
-
-# Theatre formats to lookup (AMC seems to name these offerings). These values can be found by going to amctheatres.com and opening the showtimes for a theatre.
-# There will be an option to select different formats, the default selection is currently "Premium Offerings". Selecting a different option will put the key for the format in the URL. For example, selecting "Dolby Cinema at AMC" will result in the following URL:
-#
-#   https://www.amctheatres.com/movie-theatres/{location}/{theatre-key}/showtimes/all/{date}/{theatre-key}/all
-#
-# This script was intially written to specifically find when new Dobly Cinema showtimes are released and so we only filter for this format.
-offerings = [
-    'dolbycinemaatamcprime'
-]
-
-#
 FETCH_DELAY=5
 MAX_EXCEPTIONS=5
 BASE_URL='https://www.amctheatres.com'
@@ -130,7 +93,7 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
 
     return films
 
-def fetch_new_showtimes(lookforward_days):
+def fetch_new_showtimes(lookforward_days, theatres, offerings):
     print(f"[{str(datetime.now())}] Starting requests for {lookforward_days} days, {len(theatres)} theatres, and {len(offerings)} offerings ({args.lookforward_days * len(theatres) * len(offerings)} requests)")
     results = {
         'films': [],
@@ -152,9 +115,10 @@ def fetch_new_showtimes(lookforward_days):
 
             for offering in offerings:
                 try:
-                    film_results = fetch_showtimes(theatre[0], theatre[1], datestr, offering)
+                    (theatre_location, theatre_key) = theatre.split('/')
+                    film_results = fetch_showtimes(theatre_location, theatre_key, datestr, offering)
                 except Exception as err:
-                    results['exceptions'].append((err, f"Enountered exception after retries requesting for {theatre[1]}, {datestr}, {offering}"))
+                    results['exceptions'].append((err, f"Encountered exception after retries requesting for {theatre}, {datestr}, {offering}"))
                     print('x', end='')
                     sys.stdout.flush()
                     if len(results['exceptions']) >= MAX_EXCEPTIONS:
@@ -228,10 +192,11 @@ def purge_old_records():
     return results
 
 
-def gen_formated_showtimes(showtimes, html=False):
+def gen_formated_showtimes(showtimes, theatres, html=False):
     by_films = {}
+    theatre_keys = [t.split('/')[-1] for t in theatres]
     for fk in set([x.film.key for x in showtimes]):
-        ts = [(t[1], [s for s in showtimes if s.film.key == fk and s.theatre == t[1]]) for t in theatres ]
+        ts = [(t, [s for s in showtimes if s.film.key == fk and s.theatre == t]) for t in theatre_keys]
         by_films[fk] = [t for t in ts if len(t[1]) > 0]
 
     body = ""
@@ -275,14 +240,14 @@ def gen_formated_showtimes(showtimes, html=False):
     return body
 
 
-def gen_new_showtimes_email_body(showtimes):
+def gen_new_showtimes_email_body(showtimes, theatres):
     body = """
     <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
     <html><head><META http-equiv="Content-Type" content="text/html; charset=utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0}#m_MessageViewBody a{color:inherit;text-decoration:none}p{line-height:inherit}.m_desktop_hide,.m_desktop_hide table{display:none;max-height:0;overflow:hidden}.m_image_block img+div{display:none}@media (max-width:520px){.m_mobile_hide{display:none}.m_row-content{width:100%!important}.m_stack .m_column{width:100%;display:block}.m_mobile_hide{min-height:0;max-height:0;max-width:0;overflow:hidden;font-size:0}.m_desktop_hide,.m_desktop_hide table{display:table!important;max-height:none!important}}</style></head><body><u></u><div style="background-color:#fff;margin:0;padding:0"><table class="m_nl-container" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fff"><tbody><tr><td><table class="m_row m_row-1" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#cd2323">
     <tbody><tr><td><table class="m_row-content m_stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="color:#000;width:500px;margin:0 auto" width="500"><tbody><tr><td class="m_column m_column-1" width="100%" style="font-weight:400;text-align:left;padding-bottom:5px;padding-top:5px;vertical-align:top;border-top:0;border-right:0;border-bottom:0;border-left:0"><table class="m_text_block m_block-1" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation" style="word-break:break-word"><tr><td class="m_pad"><div style="font-family:Verdana,sans-serif"><div style="font-size:14px;font-family:&#39;Lucida Sans Unicode&#39;,&#39;Lucida Grande&#39;,&#39;Lucida Sans&#39;,Geneva,Verdana,sans-serif;color:#555;line-height:1.8"><p style="margin:0;font-size:14px;text-align:center">
     <span style="font-size:26px;color:#ffffff"><strong>AMC Showtime</strong><strong> </strong><strong>Notifier</strong></span></p></div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table><table class="m_row m_row-2" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td><table class="m_row-content m_stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-radius:0;color:#000;width:500px;margin:0 auto" width="500"><tbody><tr><td class="m_column m_column-1" width="100%" style="font-weight:400;text-align:left;padding-bottom:5px;padding-top:5px;vertical-align:top;border-top:0;border-right:0;border-bottom:0;border-left:0"><table class="m_text_block m_block-1" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation" style="word-break:break-word"><tr><td class="m_pad"><div style="font-family:sans-serif"><div style="font-size:14px;font-family:Arial,&#39;Helvetica Neue&#39;,Helvetica,sans-serif;color:#555;line-height:1.2"><p style="margin:0;font-size:14px">Found new AMC showtimes!</p>
     """
-    body += gen_formated_showtimes(showtimes, html=True)
+    body += gen_formated_showtimes(showtimes, theatres, html=True)
     body += """
     </div></div></td></tr></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table><div style="background-color:transparent">
         <div style="Margin:0 auto;min-width:320px;max-width:500px;word-wrap:break-word;word-break:break-word;background-color:transparent" class="m_block-grid">
@@ -298,17 +263,17 @@ def gen_new_showtimes_email_body(showtimes):
 def notify(args):
     with db:
         db.create_tables([Film, Showtime])
-        new = fetch_new_showtimes(args.lookforward_days)
+        new = fetch_new_showtimes(args.lookforward_days, args.theatres, args.offerings)
 
         if len(new['showtimes']):
             print("New showtimes:")
-            print(gen_formated_showtimes(new['showtimes']))
+            print(gen_formated_showtimes(new['showtimes'], args.theatres))
             ds = datetime.now().strftime("%Y-%m-%d")
             send_email(
                 f"New AMC showtimes found as of {ds}!",
-                gen_new_showtimes_email_body(new['showtimes']),
+                gen_new_showtimes_email_body(new['showtimes'], args.theatres),
                 args.email_sender,
-                args.email_recipients,
+                args.email_to,
                 args.email_password,
                 html=True
             )
@@ -334,7 +299,7 @@ def notify(args):
             e = new['exceptions'][-1][0]
             e_str = ''.join(traceback.TracebackException.from_exception(e).format())
 
-            if len(args.log_email_recipients) > 0:
+            if args.log_email_recipients:
                 send_email(
                     "AMC Showtime Notifier Exception",
                     f"At {str(datetime.now())} AMC Showtime notifier encountered exceptions!\n\n{s}\n\nLatest exception:\n{e_str}",
@@ -347,7 +312,7 @@ def notify(args):
             print("Raising latest exception...")
             raise e
         else:
-            if len(args.log_email_recipients) > 0:
+            if args.log_email_recipients:
                 send_email(
                     "AMC Showtime Notifier Success",
                     f"Successfully completed at {str(datetime.now())}",
@@ -394,7 +359,8 @@ def debug(args):
                 print(f'{showtime.date} - {showtime.theatre} - {showtime.film} ({showtime.link})')
 
         if args.pprint_showtimes:
-            print(gen_formated_showtimes(list(Showtime.select())))
+            theatres = set((x.theatre for x in Showtime.select(Showtime.theatre)))
+            print(gen_formated_showtimes(list(Showtime.select()), theatres))
 
         if args.print_showtimes_before:
             d = datetime.strptime(args.print_showtimes_before, '%Y-%m-%d %I:%M%p')
@@ -429,10 +395,14 @@ if __name__ == "__main__":
                                help='Gmail email account to send notifications from')
     notify_parser.add_argument('email_password',
                                help='App password for the Gmail email account to send notifications from')
-    notify_parser.add_argument('email_recipients', nargs='+',
+    notify_parser.add_argument('--email-to', nargs='+', required=True,
                                help='Recipients for the new showtimes notification email.')
+    notify_parser.add_argument('--theatres', nargs='+', required=True,
+                               help="To find new theatres, go to https://www.amctheatres.com/movie-theatres, search for the theatre you are interested in and click the link to \"Showtimes\" for that theatre. In the URL, after \"movie-theatres/\" there should be a location key and a theatre key, use that portion of the URL for this argument. For example: \"san-francisco/amc-metreon-16\"")
+    notify_parser.add_argument('--offerings', nargs='+', required=True,
+                               help="Theatre formats to lookup (AMC seems to name these offerings). These values can be found by going to amctheatres.com and opening the showtimes for a theatre. There will be an option to select different formats, the default selection is currently \"Premium Offerings\". Selecting a different option will put the key for the format in the URL. For example, selecting \"Dolby Cinema at AMC\" will result in the following value in the URL: \"dolbycinemaatamcprime\"")
     notify_parser.add_argument('--log-email-recipients', action='append',
-                               help='Email recipients for command logs (sent on any outcome of the command in addition to new notifications)')
+                               help='Email recipients for command logs (sent on any outcome of the command in addition to new notifications). Add as many as necessary.')
 
 
     debug_parser = subparsers.add_parser('debug', help='Debug database')
