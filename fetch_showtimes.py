@@ -6,6 +6,7 @@ from config import FETCH_DELAY, MAX_EXCEPTIONS, BASE_URL, THEATRE_SHOWTIMES_URL
 from database import Showtime, Film
 from datetime import datetime, timedelta
 
+
 class ShowtimeResult(object):
 
     def __init__(self, datetime, theatre, link):

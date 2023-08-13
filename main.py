@@ -5,7 +5,7 @@ from config import MAX_EXCEPTIONS
 from database import database, Showtime, Film, purge_old_records
 from datetime import datetime, timedelta
 from fetch_showtimes import fetch_new_showtimes
-from outputs import send_email, gen_new_showtimes_email_body, gen_formated_showtimes
+from outputs import send_email, gen_formated_showtimes, gen_new_showtimes_html
 
 
 def notify(args):
@@ -26,10 +26,9 @@ def notify(args):
         if len(new.showtimes):
             print("New showtimes:")
             print(gen_formated_showtimes(new.showtimes, args.theatres))
-            ds = datetime.now().strftime("%Y-%m-%d")
             send_email(
-                f"New AMC showtimes found as of {ds}!",
-                gen_new_showtimes_email_body(new.showtimes, args.theatres),
+                f"New AMC showtimes found!",
+                gen_new_showtimes_html(new.showtimes, args.theatres),
                 args.email_sender,
                 args.email_to,
                 args.email_password,
@@ -65,7 +64,6 @@ def notify(args):
                     args.log_email_recipients,
                     args.email_password
                 )
-
 
             print("Raising latest exception...")
             raise e
@@ -118,6 +116,11 @@ def debug(args):
             theatres = set((x.theatre for x in Showtime.select(Showtime.theatre)))
             print(gen_formated_showtimes(list(Showtime.select()), theatres))
 
+        if args.print_showtimes_html:
+            theatres = set((x.theatre for x in Showtime.select(Showtime.theatre)))
+
+            print(gen_new_showtimes_html(list(Showtime.select()), theatres))
+
         if args.print_showtimes_before:
             d = datetime.strptime(args.print_showtimes_before, '%Y-%m-%d %I:%M%p')
             for showtime in Showtime.select().where(Showtime.date < d):
@@ -154,7 +157,7 @@ if __name__ == "__main__":
     notify_parser.add_argument('--email-to', nargs='+', required=True,
                                help='Recipients for the new showtimes notification email.')
     notify_parser.add_argument('--theatres', nargs='+', required=True,
-                               help="To find new theatres, go to https://www.amctheatres.com/movie-theatres, search for the theatre you are interested in and click the link to \"Showtimes\" for that theatre. In the URL, after \"movie-theatres/\" there should be a location key and a theatre key, use that portion of the URL for this argument. For example: \"san-francisco/amc-metreon-16\"")
+                               help="Theatres to lookup showtimes for, in order of preference. To find new theatres, go to https://www.amctheatres.com/movie-theatres, search for the theatre you are interested in and click the link to \"Showtimes\" for that theatre. In the URL, after \"movie-theatres/\" there should be a location key and a theatre key, use that portion of the URL for this argument. For example: \"san-francisco/amc-metreon-16\"")
     notify_parser.add_argument('--offerings', nargs='+', required=True,
                                help="Theatre formats to lookup (AMC seems to name these offerings). These values can be found by going to amctheatres.com and opening the showtimes for a theatre. There will be an option to select different formats, the default selection is currently \"Premium Offerings\". Selecting a different option will put the key for the format in the URL. For example, selecting \"Dolby Cinema at AMC\" will result in the following value in the URL: \"dolbycinemaatamcprime\"")
     notify_parser.add_argument('--log-email-recipients', action='append',
@@ -177,6 +180,8 @@ if __name__ == "__main__":
                               help='Prints all films in the database.')
     debug_parser.add_argument('--print-showtimes', action='store_true', default=False,
                               help='Prints all showtimes in the database.')
+    debug_parser.add_argument('--print-showtimes-html', action='store_true', default=False,
+                              help='Prints all showtimes in the database using the html email format.')
     debug_parser.add_argument('--pprint-showtimes', action='store_true', default=False,
                               help='Pretty prints all showtimes in the database.')
     debug_parser.add_argument('--print-showtimes-before', default=None,

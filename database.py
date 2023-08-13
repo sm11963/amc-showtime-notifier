@@ -43,5 +43,3 @@ def purge_old_records():
             result.films += film.delete_instance()
 
     return result
-
-
