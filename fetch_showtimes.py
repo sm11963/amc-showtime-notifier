@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 class ShowtimeResult(object):
 
-    def __init__(self, time, theatre, link):
-        self.time = time
+    def __init__(self, datetime, theatre, link):
+        self.datetime = datetime
         self.theatre = theatre
         self.link = link
 
@@ -22,16 +22,21 @@ class FilmResult(object):
         self.showtimes = showtimes
 
     def __repr__(self):
-        formatted_showtimes = ', '.join([x.time for x in self.showtimes])
+        formatted_showtimes = ', '.join([str(x.datetime) for x in self.showtimes])
         return f"FilmResult({self.key} [{self.title}], showtimes=[{formatted_showtimes}])"
 
 
-class FetchNewShowtimesResult(object):
+class NewShowtimesResult(object):
 
     def __init__(self):
         self.films = []
         self.showtimes = []
         self.exceptions = []
+
+    def append(self, other_result):
+        self.films += other_result.films
+        self.showtimes += other_result.showtimes
+        self.exceptions += other_result.exceptions
 
 
 # Fetch the Films with showtimes that have available tickets given a date and theatre
@@ -66,15 +71,43 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
             link = BASE_URL + a_soup['href']
             if offering not in link:
                 continue
-            showtimes.append(ShowtimeResult(a_soup.text, theatre_key, link))
+
+            dt = datetime.strptime(datestr + ' ' + a_soup.text, '%Y-%m-%d %I:%M%p')
+            showtimes.append(ShowtimeResult(dt, theatre_key, link))
 
         films.append(FilmResult(film_key, film_title, showtimes))
 
     return films
 
 
+def process_film_result(film_result):
+    new = NewShowtimesResult()
+
+    film = Film.get_or_none(key = film_result.key)
+    if film is None:
+        film = Film.create(key = film_result.key,
+                           title = film_result.title)
+        new.films.append(film)
+
+    for showtime_result in film_result.showtimes:
+        s = Showtime.get_or_none(film = film,
+                                 theatre = showtime_result.theatre,
+                                 date = showtime_result.datetime)
+        if s is None:
+            s = Showtime.create(film = film,
+                                theatre = showtime_result.theatre,
+                                date = showtime_result.datetime,
+                                link = showtime_result.link)
+            new.showtimes.append(s)
+        else:
+            s.link = showtime_result.link
+            s.save()
+
+    return new
+
+
 def fetch_new_showtimes(lookforward_days, theatres, offerings, post_request_callback):
-    result = FetchNewShowtimesResult()
+    result = NewShowtimesResult()
     exceptions = []
     first_fetch = True
     start_date = datetime.now()
@@ -109,27 +142,8 @@ def fetch_new_showtimes(lookforward_days, theatres, offerings, post_request_call
                 post_request_callback(None)
 
                 for film_result in (x for x in film_results if len(x.showtimes) > 0):
-                    film = Film.get_or_none(key = film_result.key)
-                    if film is None:
-                        film = Film.create(key = film_result.key,
-                                           title = film_result.title)
-                        result.films.append(film)
-
-                    for showtime_result in film_result.showtimes:
-                        showtime_date = datetime.strptime(datestr + ' ' + showtime_result.time, '%Y-%m-%d %I:%M%p')
-
-                        s = Showtime.get_or_none(film = film,
-                                                 theatre = showtime_result.theatre,
-                                                 date = showtime_date)
-                        if s is None:
-                            s = Showtime.create(film = film,
-                                                theatre = showtime_result.theatre,
-                                                date = showtime_date,
-                                                link = showtime_result.link)
-                            result.showtimes.append(s)
-                        else:
-                            s.link = showtime_result.link
-                            s.save()
+                    n = process_film_result(film_result)
+                    result.append(n)
 
                 first_fetch = False
 
