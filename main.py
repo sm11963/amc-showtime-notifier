@@ -1,4 +1,4 @@
-from peewee import SqliteDatabase, Model, CharField, DateTimeField, ForeignKeyField
+from database import database, Showtime, Film
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
@@ -15,9 +15,6 @@ FETCH_DELAY=5
 MAX_EXCEPTIONS=5
 BASE_URL='https://www.amctheatres.com'
 THEATRE_SHOWTIMES_URL=BASE_URL + '/movie-theatres/{location}/{theatre_key}/showtimes/all/{datestr}/{theatre_key}/{offering}'
-
-db = SqliteDatabase(None)
-
 
 class ShowtimeResult(object):
 
@@ -36,23 +33,6 @@ class FilmResult(object):
     def __repr__(self):
         formatted_showtimes = ', '.join([x.time for x in self.showtimes])
         return f"FilmResult({self.key} [{self.title}], showtimes=[{formatted_showtimes}])"
-
-
-class BaseModel(Model):
-    class Meta:
-        database = db
-
-
-class Film(BaseModel):
-    key = CharField(unique=True, primary_key=True)
-    title = CharField()
-
-
-class Showtime(BaseModel):
-    film = ForeignKeyField(Film, backref='showtimes')
-    theatre = CharField()
-    date = DateTimeField()
-    link = CharField()
 
 
 # Fetch the Films with showtimes that have available tickets given a date and theatre
@@ -261,8 +241,8 @@ def gen_new_showtimes_email_body(showtimes, theatres):
 
 
 def notify(args):
-    with db:
-        db.create_tables([Film, Showtime])
+    with database:
+        database.create_tables([Film, Showtime])
         new = fetch_new_showtimes(args.lookforward_days, args.theatres, args.offerings)
 
         if len(new['showtimes']):
@@ -329,10 +309,10 @@ def email(args):
 
 
 def debug(args):
-    with db:
+    with database:
 
         if args.drop_tables:
-            db.drop_tables([Film, Showtime])
+            database.drop_tables([Film, Showtime])
 
         if args.delete_film is not None:
             q = Film.delete().where(Film.key == args.delete_film)
@@ -443,7 +423,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    db.init(args.db_file)
+    database.init(args.db_file)
 
     args.func(args)
 
