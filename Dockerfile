@@ -3,8 +3,9 @@ FROM python:3-alpine
 WORKDIR /app
 
 COPY docker/. /app/docker/
+COPY *.py /app/
 COPY requirements.txt /app/
-COPY main.py /app/
+COPY templates/. /app/templates/
 
 RUN pip install -r requirements.txt
 
