@@ -66,3 +66,14 @@ These are the steps to build and export the image to be uploaded to a Docker hos
 ```
 
 When creating a container from the image, review the [Dockerfile](Dockerfile) for details on the environment variables to set which configure how the script runs.
+
+### Running on Docker on Synology NAS
+For clarity, here is my process to run this image on Docker on my Synology DS918+ NAS:
+1. On Synology DSM, create a new shared folder. In my case, I created a general scriptsdata shared folder to be used by any low security scripts like this one.
+2. Follow [this guide](https://drfrankenstein.co.uk/step-2-setting-up-a-restricted-docker-user-and-obtaining-ids/) to create a new user / group and retrieve the UIDs. In my case, I created a general user I can use for low security scripts, scriptsrunner and a group scriptsrunner. The access of the new user should be very limited.
+3. Give the new user/group read/write access to the shared folder you created in step 1.
+4. Make your user account a member of the new group you created. Note, that before you do this, make sure you haven't explicitly denyed access to anything like that group, otherwise adding your primary user account to the new group could cause loss of access (been there, done that!).
+5. Open Docker on the NAS and upload the docker image (you can use the instructions above to build and export the image).
+6. Create a container from the image. Open the advanced settings and fill out the environment variables including setting the UID and GID of the new user and group.
+7. Map a directory in the new shared folder you created in the previous steps to the path `/data` in the new container.
+8. Run the container. You can check the logs that will be output in the directoy you mapped to `/data`, check the logs in the docker UI for the container, and/or create a shell in the container (create a new shell using `/bin/sh`) to find out what is going on in the container.
