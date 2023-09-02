@@ -4,8 +4,8 @@ import traceback
 from config import MAX_EXCEPTIONS
 from database import database, Showtime, Film, purge_old_records
 from datetime import datetime, timedelta
-from fetch_showtimes import fetch_new_showtimes
-from outputs import send_email, gen_formated_showtimes, gen_new_showtimes_html
+from fetch_showtimes import fetch_new_showtimes, fetch_showtimes
+from outputs import send_email, gen_formated_showtimes, gen_new_showtimes_html, gen_formated_film_results
 
 
 def notify(args):
@@ -138,6 +138,12 @@ def debug(args):
             print(f'{count_removed} records removed')
 
 
+def fetch(args):
+    (theatre_location, theatre_key) = args.theatre.split('/')
+    films = fetch_showtimes(theatre_location, theatre_key, args.datestr, args.offering)
+    print(gen_formated_film_results(films))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alert when new showtimes are available.')
 
@@ -188,6 +194,16 @@ if __name__ == "__main__":
                               help='Prints all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
     debug_parser.add_argument('--delete-showtimes-before', default=None,
                               help='Deletes all showtimes in the database with date before the provided datetime in format 2023-08-05 7:34PM')
+
+    fetch_parser = subparsers.add_parser('fetch', help='Fetch showtimes from AMC')
+    fetch_parser.set_defaults(func=fetch)
+    fetch_parser.add_argument('datestr', default=None,
+                              help='Fetches showtimes for the given date in format 2023-08-05')
+    fetch_parser.add_argument('--theatre', required=True,
+                               help="Theatre to lookup showtimes for, in order of preference. To find new theatres, go to https://www.amctheatres.com/movie-theatres, search for the theatre you are interested in and click the link to \"Showtimes\" for that theatre. In the URL, after \"movie-theatres/\" there should be a location key and a theatre key, use that portion of the URL for this argument. For example: \"san-francisco/amc-metreon-16\"")
+    fetch_parser.add_argument('--offering', required=True,
+                               help="Theatre format to lookup (AMC seems to name these offerings). These values can be found by going to amctheatres.com and opening the showtimes for a theatre. There will be an option to select different formats, the default selection is currently \"Premium Offerings\". Selecting a different option will put the key for the format in the URL. For example, selecting \"Dolby Cinema at AMC\" will result in the following value in the URL: \"dolbycinemaatamcprime\"")
+
 
     email_parser = subparsers.add_parser('email', help='Send email with the given parameters through gmail SMTP (used for testing).')
     email_parser.set_defaults(func=email)

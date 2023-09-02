@@ -67,6 +67,10 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
         for showtime_soup in showtimes_soup:
             if 'Showtime-disabled' in showtime_soup['class']:
                 continue
+
+            status_soup = showtime_soup.find(class_="ShowtimeButtons-status")
+            if status_soup is not None and status_soup.text.lower() == "available soon":
+                continue
             a_soup = showtime_soup.find('a')
             # if there are no offerings for the given date, AMC might redirect and provide all offerings. Double check that that this showtime is for the requested offering by checking the link which should include the offering key.
             link = BASE_URL + a_soup['href']
@@ -76,7 +80,8 @@ def fetch_showtimes(location, theatre_key, datestr, offering):
             dt = datetime.strptime(datestr + ' ' + a_soup.text, '%Y-%m-%d %I:%M%p')
             showtimes.append(ShowtimeResult(dt, theatre_key, link))
 
-        films.append(FilmResult(film_key, film_title, showtimes))
+        if len(showtimes) > 0:
+            films.append(FilmResult(film_key, film_title, showtimes))
 
     return films
 

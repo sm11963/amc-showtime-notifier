@@ -53,3 +53,17 @@ def gen_new_showtimes_html(showtimes, theatres):
     return template.render(by_films=by_films,
                            now=datetime.now().strftime('%Y-%d-%m %H:%M'))
 
+
+def gen_formated_film_results(film_results):
+    body = ""
+    for film in film_results:
+
+        body += film.title + "\n"
+        for t in set([s.theatre for s in film.showtimes]):
+            body += f"  {t}\n"
+            for s in sorted([s for s in film.showtimes if s.theatre == t], key=lambda x: x.datetime):
+                ds = s.datetime.strftime("%Y-%m-%d %I:%M %p")
+                body += f"    [{ds}] - {s.link}\n"
+                body += "\n"
+
+    return body
